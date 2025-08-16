@@ -269,16 +269,6 @@
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <!-- Scripts -->
-    <script src="config.js"></script>
-    <script src="utils.js"></script>
-    <script src="api.js"></script>
-    <script src="auth.js"></script>
-    <script src="dashboard.js"></script>
-    <script src="profile.js"></script>
-    <script src="subscriptions.js"></script>
-    <script src="app.js"></script>
-
     <style>
 /* Reset and Base Styles */
 * {
@@ -323,9 +313,6 @@ body {
     position: sticky;
     top: 0;
     z-index: 100;
-}
-
-.navbar {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -959,7 +946,7 @@ body {
     <script>
 // config.js
 const API_CONFIG = {
-    BASE_URL: 'https://subscription-tracker-1rms.onrender.com/api/v1', // Update this to your actual API URL
+    BASE_URL: 'https://subscription-tracker-1rms.onrender.com/api/v1',
     ENDPOINTS: {
         AUTH: {
             SIGNUP: '/auth/sign-up',
@@ -1048,7 +1035,7 @@ class Utils {
             monthly: 30,
             yearly: 365
         };
-
+        
         const days = periods[frequency] || 30;
         
         while (next <= now) {
@@ -1142,8 +1129,17 @@ class API {
             ...options
         };
 
+        // Add timeout to fetch request
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
         try {
-            const response = await fetch(fullUrl, defaultOptions);
+            const response = await fetch(fullUrl, {
+                ...defaultOptions,
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
             const data = await response.json();
 
             if (!response.ok) {
@@ -1152,6 +1148,10 @@ class API {
 
             return data;
         } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error('Request timeout');
+            }
             console.error('API request failed:', error);
             throw error;
         }
@@ -1326,14 +1326,42 @@ class Auth {
         }
     }
 
+    // FIXED LOGOUT FUNCTION
     static async handleLogout() {
+        // Immediately disable the logout button to prevent multiple clicks
+        const logoutBtn = document.getElementById('logoutBtn');
+        const originalText = logoutBtn.innerHTML;
+        logoutBtn.style.pointerEvents = 'none';
+        logoutBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Logging out...';
+        
         try {
-            await API.signout();
+            Utils.showLoading(); // Show spinner immediately
+            
+            // Set a timeout for the API call to prevent hanging
+            const logoutPromise = API.signout();
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Logout timeout')), 5000)
+            );
+            
+            try {
+                await Promise.race([logoutPromise, timeoutPromise]);
+            } catch (error) {
+                console.error('Logout API error:', error);
+                // Continue with local logout even if API fails
+            }
+            
         } catch (error) {
             console.error('Logout error:', error);
         } finally {
+            // Always clear local storage and redirect, regardless of API response
             localStorage.removeItem('token');
             localStorage.removeItem('user');
+            Utils.hideLoading(); // Hide spinner
+            
+            // Re-enable button (though it will be hidden soon)
+            logoutBtn.style.pointerEvents = 'auto';
+            logoutBtn.innerHTML = originalText;
+            
             this.showAuth();
             Utils.showToast('Logged out successfully', 'info');
         }
@@ -1351,10 +1379,22 @@ class Auth {
         document.getElementById('loginForm').classList.remove('hidden');
     }
 
+    // IMPROVED SHOWAUTH FUNCTION
     static showAuth() {
-        document.getElementById('authContainer').classList.remove('hidden');
+        // Hide app immediately
         document.getElementById('appContainer').classList.add('hidden');
         document.querySelector('.navbar').style.display = 'none';
+        
+        // Show auth with a slight delay for smooth transition
+        setTimeout(() => {
+            document.getElementById('authContainer').classList.remove('hidden');
+            // Clear any form data
+            document.getElementById('loginFormElement').reset();
+            document.getElementById('registerFormElement').reset();
+            // Ensure login form is shown
+            document.getElementById('registerForm').classList.add('hidden');
+            document.getElementById('loginForm').classList.remove('hidden');
+        }, 100);
     }
 
     static showApp() {
@@ -1538,7 +1578,6 @@ class Dashboard {
         document.querySelectorAll('.cancel-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 const subscriptionId = e.target.closest('.cancel-btn').dataset.id;
-                console.log(subscriptionId);
                 if (confirm('Are you sure you want to cancel this subscription?')) {
                     await this.cancelSubscription(subscriptionId);
                 }
@@ -1873,3 +1912,5 @@ document.addEventListener('DOMContentLoaded', () => {
     App.init();
 });
     </script>
+</body>
+</html>
